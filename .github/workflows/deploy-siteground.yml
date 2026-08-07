@@ -1,0 +1,68 @@
+# Publish the site to SiteGround over FTPS.
+#
+# Why this exists: Claude Code sessions running in the cloud reach the network
+# through an HTTPS-only proxy, so they cannot open an FTP or SSH connection to
+# SiteGround at all. GitHub's runners have unrestricted network access, so the
+# upload happens here instead — a push to the branch is the publish.
+#
+# One-time setup (Settings -> Secrets and variables -> Actions -> New secret):
+#
+#   SITEGROUND_FTP_HOST      your FTP host, e.g. ftp.jacobavanzato.com
+#   SITEGROUND_FTP_USER      the FTP account username
+#   SITEGROUND_FTP_PASSWORD  that account's password
+#
+# Create a dedicated FTP account first in SiteGround Site Tools -> Site -> FTP
+# Accounts, with its directory set to the share subdomain's document root. That
+# way these credentials cannot touch the rest of your hosting.
+#
+# Then set the document root below in `server-dir` if yours differs.
+
+name: Deploy to SiteGround
+
+on:
+  push:
+    branches:
+      - claude/lomanikaya-website-redesign-jz4t2s
+  workflow_dispatch:
+
+concurrency:
+  group: siteground-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the site
+        uses: actions/checkout@v4
+
+      - name: Keep the preview out of search results
+        # share.jacobavanzato.com is a preview of a site that will live at its
+        # own domain. Without this the preview competes with the real site in
+        # search. Set the repository variable PREVIEW_NOINDEX to "false" when
+        # deploying somewhere that should be indexed.
+        if: vars.PREVIEW_NOINDEX != 'false'
+        run: |
+          printf 'User-agent: *\nDisallow: /\n' > robots.txt
+          rm -f sitemap.xml
+
+      - name: Upload to SiteGround
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.SITEGROUND_FTP_HOST }}
+          username: ${{ secrets.SITEGROUND_FTP_USER }}
+          password: ${{ secrets.SITEGROUND_FTP_PASSWORD }}
+          protocol: ftps
+          # The FTP account above should already be locked to this directory;
+          # "./" then means "that account's home". Change it to an absolute path
+          # such as /public_html/ if your account has wider access.
+          server-dir: ./
+          # Development files that should never reach the web root.
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            tools/**
+            README.md
+            CONTENT-TODO.md
+            assets/img/README.md
